@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我的网盘</title>
+<title>netdisk</title>
 <style>
   :root{
     --bg:#f5f6f8; --card:#fff; --fg:#1f2328; --muted:#656d76;
@@ -83,7 +83,7 @@
       <button type="button" id="tabLogin" class="on">登录</button>
       <button type="button" id="tabSignup">注册</button>
     </div>
-    <h1 id="authTitle" style="margin-top:18px">登录网盘</h1>
+    <h1 id="authTitle" style="margin-top:18px">登录 netdisk</h1>
     <p class="sub" id="authSub">用户名 + 密码，不需要邮箱。</p>
 
     <label for="inUser">用户名</label>
@@ -100,7 +100,7 @@
 <!-- ========== 2. 网盘 ========== -->
 <div id="appView" class="view hidden">
   <header class="bar">
-    <h2>我的网盘</h2>
+    <h2>netdisk</h2>
     <span class="who" id="whoami"></span>
     <button class="tiny" id="btnLogout">退出登录</button>
   </header>
@@ -224,7 +224,7 @@
     mode = m;
     $('tabLogin').classList.toggle('on', m === 'login');
     $('tabSignup').classList.toggle('on', m === 'signup');
-    $('authTitle').textContent = m === 'login' ? '登录网盘' : '注册新账号';
+    $('authTitle').textContent = m === 'login' ? '登录 netdisk' : '注册新账号';
     $('authSub').textContent = m === 'login'
       ? '用户名 + 密码，不需要邮箱。'
       : '注册后即可拥有自己的独立空间，看不到别人的文件。';
@@ -331,7 +331,7 @@
     box.innerHTML = '';
     var root = document.createElement('button');
     root.className = 'link';
-    root.textContent = '📁 我的网盘';
+    root.textContent = '📁 netdisk';
     root.onclick = function () { path = ''; refresh(); };
     box.appendChild(root);
 
