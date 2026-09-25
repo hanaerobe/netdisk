@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Supabase 网盘</title>
+<title>我的网盘</title>
 <style>
   :root{
     --bg:#f5f6f8; --card:#fff; --fg:#1f2328; --muted:#656d76;
@@ -43,11 +43,6 @@
   .tabs{display:flex;gap:6px;margin-bottom:4px}
   .tabs button{flex:1;border-radius:8px}
   .tabs button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
-  details{margin-top:18px;font-size:13px;color:var(--muted)}
-  details summary{cursor:pointer;color:var(--accent2)}
-  details ol,details ul{padding-left:20px;margin:10px 0 0}
-  details li{margin:4px 0}
-  code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
   header.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
   header.bar .who{color:var(--muted);font-size:13px;margin-right:auto}
   .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
@@ -74,8 +69,6 @@
   .up .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
   .up .st{color:var(--muted);font-size:12px;white-space:nowrap;min-width:52px;text-align:right}
   .up .st.err{color:var(--danger)} .up .st.ok{color:var(--ok)}
-  .warn{background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;
-        padding:9px 12px;font-size:12.5px;margin-bottom:14px}
   .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);
         border-top-color:var(--accent2);border-radius:50%;animation:s .7s linear infinite;vertical-align:-1px}
   @keyframes s{to{transform:rotate(360deg)}}
@@ -83,34 +76,7 @@
 </head>
 <body>
 
-<!-- ========== 1. 首次配置 ========== -->
-<div id="setupView" class="view hidden">
-  <form id="setupForm" class="card" autocomplete="off">
-    <h1>连接你的 Supabase</h1>
-    <p class="sub">填一次就行，保存在本机浏览器。也可以直接写进 <code>index.html</code> 顶部的 <code>DEFAULT_CFG</code>。</p>
-
-    <label for="inUrl">Project URL</label>
-    <input id="inUrl" type="text" placeholder="https://xxxxxxxx.supabase.co" required>
-
-    <label for="inKey">anon public key</label>
-    <input id="inKey" type="text" placeholder="eyJhbGciOi..." required>
-
-    <button class="primary" type="submit" id="setupBtn">保存并继续</button>
-    <p id="setupMsg" class="msg"></p>
-
-    <details>
-      <summary>这两个值在哪？</summary>
-      <ol>
-        <li>登录 <b>supabase.com</b> → 进入你的项目</li>
-        <li>左下角 <b>Project Settings</b> → <b>Data API</b>（老版本叫 API）</li>
-        <li><b>Project URL</b> 和 <b>anon public</b> 两个值复制过来即可</li>
-      </ol>
-      <p>anon key 是<b>公开的</b>，写进网页里没问题 —— 真正的门禁是数据库的 RLS 策略。</p>
-    </details>
-  </form>
-</div>
-
-<!-- ========== 2. 登录 / 注册 ========== -->
+<!-- ========== 1. 登录 / 注册 ========== -->
 <div id="authView" class="view hidden">
   <form id="authForm" class="card" autocomplete="on">
     <div class="tabs">
@@ -128,11 +94,10 @@
 
     <button class="primary" type="submit" id="authBtn">登 录</button>
     <p id="authMsg" class="msg"></p>
-    <p style="margin-top:16px"><button type="button" class="link" id="btnReconfig">重新配置 Supabase 连接</button></p>
   </form>
 </div>
 
-<!-- ========== 3. 网盘 ========== -->
+<!-- ========== 2. 网盘 ========== -->
 <div id="appView" class="view hidden">
   <header class="bar">
     <h2>我的网盘</h2>
@@ -151,16 +116,6 @@
   <div class="crumbs" id="crumbs"></div>
   <div class="list" id="list"></div>
   <div id="uploads"></div>
-
-  <details>
-    <summary>说明与限制</summary>
-    <ul>
-      <li>文件存在 Supabase Storage 的私有桶 <code>netdisk</code> 里，每个账号只能看到自己 <code>uid/</code> 目录下的文件（由 RLS 策略强制，不是靠前端藏的）。</li>
-      <li>免费额度：<b>1 GB 文件存储、5 GB 流量</b>，项目闲置 1 周会被暂停（去后台点一下就能唤醒）。</li>
-      <li>免费版单文件默认上限 <b>50 MB</b>，可在 Storage → Settings 里调整。</li>
-      <li>下载走 60 秒有效期的签名链接，链接过期后自动失效。</li>
-    </ul>
-  </details>
 </div>
 
 <div class="drop hidden" id="drop">松开鼠标即可上传到当前目录</div>
@@ -170,15 +125,14 @@
 (function () {
   'use strict';
 
-  /* ============ 想省事的话，把下面两行填上，部署后就不用再输配置了 ============ */
+  /* ============ 后端连接配置（换 Supabase 项目就改这里）============ */
   var DEFAULT_CFG = {
     url: 'https://hkljstgxxefxqxgclxmm.supabase.co',
     key: 'sb_publishable_Vc-UqVqCMTAqfxCOTCcE7g_A4KVE9bU'   // 公开密钥，可以安全地放在网页里
   };
-  /* ====================================================================== */
+  /* ================================================================ */
 
   var BUCKET = 'netdisk';
-  var CFG_KEY = 'sb-netdisk-cfg';
   var PLACEHOLDER = '.folderkeep';   // 用来表示空文件夹
   var MAX_MB = 50;
 
@@ -201,55 +155,10 @@
   }
   function toast(el, text, kind) { el.textContent = text || ''; el.className = 'msg' + (kind ? ' ' + kind : ''); }
   function show(view) {
-    ['setupView', 'authView', 'appView'].forEach(function (v) {
+    ['authView', 'appView'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
     });
   }
-
-  /* ============ 配置 ============ */
-
-  function readCfg() {
-    if (DEFAULT_CFG.url && DEFAULT_CFG.key) return { url: DEFAULT_CFG.url, key: DEFAULT_CFG.key };
-    try {
-      var s = JSON.parse(localStorage.getItem(CFG_KEY) || 'null');
-      if (s && s.url && s.key) return s;
-    } catch (e) {}
-    return null;
-  }
-
-  $('setupForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var url = $('inUrl').value.trim().replace(/\/+$/, '');
-    var key = $('inKey').value.trim();
-    var btn = $('setupBtn'), msg = $('setupMsg');
-    if (url.indexOf('https://') !== 0) { toast(msg, 'URL 必须以 https:// 开头', 'err'); return; }
-
-    btn.disabled = true;
-    toast(msg, '正在验证…');
-    // 用 /auth/v1/settings 探一下 URL 和 key 对不对
-    fetch(url + '/auth/v1/settings', { headers: { apikey: key } })
-      .then(function (res) {
-        if (!res.ok) throw new Error('连接失败（' + res.status + '）：URL 或 anon key 不正确');
-        return res.json();
-      })
-      .then(function () {
-        cfg = { url: url, key: key };
-        try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e2) {}
-        toast(msg, '验证通过', 'ok');
-        boot();
-      })
-      .catch(function (err) { toast(msg, err.message, 'err'); })
-      .then(function () { btn.disabled = false; });
-  });
-
-  $('btnReconfig').addEventListener('click', function () {
-    try { localStorage.removeItem(CFG_KEY); } catch (e) {}
-    if (sb) sb.auth.signOut();
-    cfg = null; sb = null; user = null;
-    $('inUrl').value = ''; $('inKey').value = '';
-    toast($('setupMsg'), '');
-    show('setupView');
-  });
 
   /* ============ 登录 / 注册 ============ */
 
@@ -311,7 +220,7 @@
     task.then(function (res) {
       if (res.error) throw new Error(res.error.message);
       if (mode === 'signup' && !res.data.session) {
-        toast(msg, '注册成功，但你的项目还开着邮箱确认，暂时无法直接登录。', 'ok');
+        toast(msg, '注册成功，但账号尚未激活，请联系管理员。', 'ok');
       } else {
         toast(msg, '');
       }
@@ -320,7 +229,7 @@
       if (/Invalid login credentials/i.test(m)) m = '用户名或密码不正确';
       if (/already registered/i.test(m)) m = '这个用户名已经被占用了，换一个，或者点【登录】';
       if (/at least 6 characters/i.test(m)) m = '密码至少 6 位';
-      if (/Email not confirmed/i.test(m)) m = '账号还没被激活（去后台把 Confirm email 关掉）';
+      if (/Email not confirmed/i.test(m)) m = '账号尚未激活，请联系管理员';
       if (/rate limit|Too many/i.test(m)) m = '请求太频繁，等一会儿再试';
       if (/Password should be at least/i.test(m)) m = '密码太短，至少 6 位';
       toast(msg, m, 'err');
@@ -336,7 +245,7 @@
     if (currentUserId === u.id && !$('appView').classList.contains('hidden')) { user = u; return; }
     currentUserId = u.id;
     user = u;
-    $('whoami').textContent = displayName(u) + ' · 配额 1 GB';
+    $('whoami').textContent = displayName(u);
     show('appView');
     path = '';
     refresh();
@@ -548,8 +457,10 @@
           var j = JSON.parse(xhr.responseText);
           m = j.message || j.error || m;
         } catch (e) {}
-        if (xhr.status === 400 && /size|exceed/i.test(m)) m = '文件超过 Supabase 单文件上限（免费版默认 50 MB）';
-        if (xhr.status === 403) m = '没有写权限，请检查 RLS 策略和桶是否建好（' + m + '）';
+        if (/Bucket not found|NoSuchBucket/i.test(m)) m = '存储服务未就绪，请联系管理员';
+        if (/row-level security/i.test(m)) m = '服务器拒绝了这次上传，请联系管理员';
+        if (xhr.status === 400 && /size|exceed/i.test(m)) m = '文件超过 ' + MAX_MB + 'MB 上限';
+        if (xhr.status === 403) m = '服务器拒绝了这次上传，请稍后重试';
         reject(new Error(m || ('上传失败 ' + xhr.status)));
       };
       xhr.onerror = function () { reject(new Error('网络错误或跨域被拦截')); };
@@ -631,9 +542,10 @@
   /* ============ 启动 ============ */
 
   function boot() {
-    if (!cfg) {
-      if (DEFAULT_CFG.url) $('inUrl').value = DEFAULT_CFG.url;
-      show('setupView');
+    if (!cfg || !cfg.url || !cfg.key) {
+      show('authView');
+      toast($('authMsg'), '站点还没有配置后端连接，请联系管理员。', 'err');
+      $('authBtn').disabled = true;
       return;
     }
     sb = window.supabase.createClient(cfg.url, cfg.key);
@@ -658,7 +570,7 @@
     });
   }
 
-  cfg = readCfg();
+  cfg = DEFAULT_CFG;
   boot();
 })();
 </script>
