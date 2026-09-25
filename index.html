@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supabase 网盘</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --fg:#1f2328; --muted:#656d76;
+    --line:#d8dee4; --accent:#3ecf8e; --accent2:#1f6feb; --accent-fg:#08231a;
+    --danger:#cf222e; --ok:#1a7f37;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0d1117; --card:#161b22; --fg:#e6edf3; --muted:#8b949e;
+           --line:#30363d; --accent:#3ecf8e; --danger:#f85149; --ok:#3fb950; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.55 -apple-system,"Segoe UI","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif}
+  .view{max-width:980px;margin:0 auto;padding:24px 16px 64px}
+  .hidden{display:none !important}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;
+        box-shadow:0 1px 3px rgba(0,0,0,.06)}
+  h1{font-size:20px;margin:0 0 6px}
+  h2{font-size:16px;margin:0}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 20px}
+  label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
+  input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+        background:var(--bg);color:var(--fg);font-size:14px;font-family:inherit}
+  input:focus{outline:2px solid var(--accent2);outline-offset:-1px;border-color:transparent}
+  button{font:inherit;font-size:14px;font-weight:600;padding:9px 16px;border-radius:8px;
+         border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--muted)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);
+                 width:100%;margin-top:20px}
+  button.primary:hover{border-color:var(--accent);filter:brightness(1.05)}
+  button.tiny{padding:3px 9px;font-size:12px;font-weight:500}
+  button.danger{color:var(--danger)}
+  button.link{background:none;border:none;color:var(--accent2);padding:2px 4px;font-weight:500}
+  .msg{font-size:13px;margin:12px 0 0;min-height:18px}
+  .msg.err{color:var(--danger)} .msg.ok{color:var(--ok)}
+  .tabs{display:flex;gap:6px;margin-bottom:4px}
+  .tabs button{flex:1;border-radius:8px}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+  details{margin-top:18px;font-size:13px;color:var(--muted)}
+  details summary{cursor:pointer;color:var(--accent2)}
+  details ol,details ul{padding-left:20px;margin:10px 0 0}
+  details li{margin:4px 0}
+  code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:12px}
+  header.bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  header.bar .who{color:var(--muted);font-size:13px;margin-right:auto}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .toolbar input{flex:1;min-width:150px}
+  .crumbs{display:flex;align-items:center;gap:2px;flex-wrap:wrap;font-size:13px;color:var(--muted);
+          padding:8px 12px;background:var(--card);border:1px solid var(--line);border-bottom:none;
+          border-radius:12px 12px 0 0}
+  .list{background:var(--card);border:1px solid var(--line);border-radius:0 0 12px 12px;overflow:hidden}
+  .row{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row:hover{background:var(--bg)}
+  .row .ic{width:20px;text-align:center;font-size:15px}
+  .row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+  .row .sz{color:var(--muted);font-size:12px;white-space:nowrap}
+  .empty{padding:40px 16px;text-align:center;color:var(--muted);font-size:14px}
+  .drop{position:fixed;inset:0;background:rgba(62,207,142,.14);border:3px dashed var(--accent);
+        display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:600;
+        color:var(--fg);z-index:50}
+  #uploads{margin-top:14px}
+  .up{display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 12px;background:var(--card);
+      border:1px solid var(--line);border-radius:8px;margin-bottom:6px}
+  .up .nm{flex:0 1 34%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .up .bar{flex:1;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+  .up .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+  .up .st{color:var(--muted);font-size:12px;white-space:nowrap;min-width:52px;text-align:right}
+  .up .st.err{color:var(--danger)} .up .st.ok{color:var(--ok)}
+  .warn{background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;
+        padding:9px 12px;font-size:12.5px;margin-bottom:14px}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--line);
+        border-top-color:var(--accent2);border-radius:50%;animation:s .7s linear infinite;vertical-align:-1px}
+  @keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ========== 1. 首次配置 ========== -->
+<div id="setupView" class="view hidden">
+  <form id="setupForm" class="card" autocomplete="off">
+    <h1>连接你的 Supabase</h1>
+    <p class="sub">填一次就行，保存在本机浏览器。也可以直接写进 <code>index.html</code> 顶部的 <code>DEFAULT_CFG</code>。</p>
+
+    <label for="inUrl">Project URL</label>
+    <input id="inUrl" type="text" placeholder="https://xxxxxxxx.supabase.co" required>
+
+    <label for="inKey">anon public key</label>
+    <input id="inKey" type="text" placeholder="eyJhbGciOi..." required>
+
+    <button class="primary" type="submit" id="setupBtn">保存并继续</button>
+    <p id="setupMsg" class="msg"></p>
+
+    <details>
+      <summary>这两个值在哪？</summary>
+      <ol>
+        <li>登录 <b>supabase.com</b> → 进入你的项目</li>
+        <li>左下角 <b>Project Settings</b> → <b>Data API</b>（老版本叫 API）</li>
+        <li><b>Project URL</b> 和 <b>anon public</b> 两个值复制过来即可</li>
+      </ol>
+      <p>anon key 是<b>公开的</b>，写进网页里没问题 —— 真正的门禁是数据库的 RLS 策略。</p>
+    </details>
+  </form>
+</div>
+
+<!-- ========== 2. 登录 / 注册 ========== -->
+<div id="authView" class="view hidden">
+  <form id="authForm" class="card" autocomplete="on">
+    <div class="tabs">
+      <button type="button" id="tabLogin" class="on">登录</button>
+      <button type="button" id="tabSignup">注册</button>
+    </div>
+    <h1 id="authTitle" style="margin-top:18px">登录网盘</h1>
+    <p class="sub" id="authSub">用户名 + 密码，不需要邮箱。</p>
+
+    <label for="inUser">用户名</label>
+    <input id="inUser" type="text" placeholder="1~10 个汉字，或 1~30 个字母" autocomplete="username" required>
+
+    <label for="inPass">密码</label>
+    <input id="inPass" type="password" placeholder="至少 6 位" autocomplete="current-password" required>
+
+    <button class="primary" type="submit" id="authBtn">登 录</button>
+    <p id="authMsg" class="msg"></p>
+    <p style="margin-top:16px"><button type="button" class="link" id="btnReconfig">重新配置 Supabase 连接</button></p>
+  </form>
+</div>
+
+<!-- ========== 3. 网盘 ========== -->
+<div id="appView" class="view hidden">
+  <header class="bar">
+    <h2>我的网盘</h2>
+    <span class="who" id="whoami"></span>
+    <button class="tiny" id="btnLogout">退出登录</button>
+  </header>
+
+  <div class="toolbar">
+    <button id="btnUpload" class="primary" style="width:auto;margin:0">上传文件</button>
+    <button id="btnFolder">新建文件夹</button>
+    <button id="btnRefresh">刷新</button>
+    <input id="inFilter" type="search" placeholder="过滤当前目录…">
+    <input id="fileInput" type="file" multiple hidden>
+  </div>
+
+  <div class="crumbs" id="crumbs"></div>
+  <div class="list" id="list"></div>
+  <div id="uploads"></div>
+
+  <details>
+    <summary>说明与限制</summary>
+    <ul>
+      <li>文件存在 Supabase Storage 的私有桶 <code>netdisk</code> 里，每个账号只能看到自己 <code>uid/</code> 目录下的文件（由 RLS 策略强制，不是靠前端藏的）。</li>
+      <li>免费额度：<b>1 GB 文件存储、5 GB 流量</b>，项目闲置 1 周会被暂停（去后台点一下就能唤醒）。</li>
+      <li>免费版单文件默认上限 <b>50 MB</b>，可在 Storage → Settings 里调整。</li>
+      <li>下载走 60 秒有效期的签名链接，链接过期后自动失效。</li>
+    </ul>
+  </details>
+</div>
+
+<div class="drop hidden" id="drop">松开鼠标即可上传到当前目录</div>
+
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* ============ 想省事的话，把下面两行填上，部署后就不用再输配置了 ============ */
+  var DEFAULT_CFG = {
+    url: 'https://hkljstgxxefxqxgclxmm.supabase.co',
+    key: 'sb_publishable_Vc-UqVqCMTAqfxCOTCcE7g_A4KVE9bU'   // 公开密钥，可以安全地放在网页里
+  };
+  /* ====================================================================== */
+
+  var BUCKET = 'netdisk';
+  var CFG_KEY = 'sb-netdisk-cfg';
+  var PLACEHOLDER = '.folderkeep';   // 用来表示空文件夹
+  var MAX_MB = 50;
+
+  var cfg = null, sb = null, user = null, token = null;
+  var path = '';
+  var items = [];
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtSize(n) {
+    if (n == null) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + ' MB';
+    return (n / 1073741824).toFixed(2) + ' GB';
+  }
+  function toast(el, text, kind) { el.textContent = text || ''; el.className = 'msg' + (kind ? ' ' + kind : ''); }
+  function show(view) {
+    ['setupView', 'authView', 'appView'].forEach(function (v) {
+      $(v).classList.toggle('hidden', v !== view);
+    });
+  }
+
+  /* ============ 配置 ============ */
+
+  function readCfg() {
+    if (DEFAULT_CFG.url && DEFAULT_CFG.key) return { url: DEFAULT_CFG.url, key: DEFAULT_CFG.key };
+    try {
+      var s = JSON.parse(localStorage.getItem(CFG_KEY) || 'null');
+      if (s && s.url && s.key) return s;
+    } catch (e) {}
+    return null;
+  }
+
+  $('setupForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var url = $('inUrl').value.trim().replace(/\/+$/, '');
+    var key = $('inKey').value.trim();
+    var btn = $('setupBtn'), msg = $('setupMsg');
+    if (url.indexOf('https://') !== 0) { toast(msg, 'URL 必须以 https:// 开头', 'err'); return; }
+
+    btn.disabled = true;
+    toast(msg, '正在验证…');
+    // 用 /auth/v1/settings 探一下 URL 和 key 对不对
+    fetch(url + '/auth/v1/settings', { headers: { apikey: key } })
+      .then(function (res) {
+        if (!res.ok) throw new Error('连接失败（' + res.status + '）：URL 或 anon key 不正确');
+        return res.json();
+      })
+      .then(function () {
+        cfg = { url: url, key: key };
+        try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e2) {}
+        toast(msg, '验证通过', 'ok');
+        boot();
+      })
+      .catch(function (err) { toast(msg, err.message, 'err'); })
+      .then(function () { btn.disabled = false; });
+  });
+
+  $('btnReconfig').addEventListener('click', function () {
+    try { localStorage.removeItem(CFG_KEY); } catch (e) {}
+    if (sb) sb.auth.signOut();
+    cfg = null; sb = null; user = null;
+    $('inUrl').value = ''; $('inKey').value = '';
+    toast($('setupMsg'), '');
+    show('setupView');
+  });
+
+  /* ============ 登录 / 注册 ============ */
+
+  var mode = 'login';
+
+  /* ---------- 用户名 <-> 内部账号 ----------
+     Supabase Auth 底层只认邮箱或手机号，所以把用户名编码成一个固定的内部邮箱：
+       用户名 --UTF-8 字节转十六进制-->  u_<hex>@netdisk.local
+     十六进制编码是唯一的，不会撞号，中文、空格、符号都能用；
+     用户全程只看到和使用用户名，永远不需要接触邮箱。                       */
+  function nameToEmail(name) {
+    var bytes = new TextEncoder().encode(String(name).toLowerCase());
+    var hex = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var h = bytes[i].toString(16);
+      hex += h.length === 1 ? '0' + h : h;
+    }
+    return 'u_' + hex + '@netdisk.local';
+  }
+  function nameBytes(name) {
+    return new TextEncoder().encode(String(name).toLowerCase()).length;
+  }
+  function displayName(u) {
+    return (u && u.user_metadata && u.user_metadata.username) || '用户';
+  }
+
+  function setMode(m) {
+    mode = m;
+    $('tabLogin').classList.toggle('on', m === 'login');
+    $('tabSignup').classList.toggle('on', m === 'signup');
+    $('authTitle').textContent = m === 'login' ? '登录网盘' : '注册新账号';
+    $('authSub').textContent = m === 'login'
+      ? '用户名 + 密码，不需要邮箱。'
+      : '注册后即可拥有自己的独立空间，看不到别人的文件。';
+    $('authBtn').textContent = m === 'login' ? '登 录' : '注 册';
+    $('inPass').value = '';
+    toast($('authMsg'), '');
+  }
+  $('tabLogin').addEventListener('click', function () { setMode('login'); });
+  $('tabSignup').addEventListener('click', function () { setMode('signup'); });
+
+  $('authForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = $('inUser').value.trim();
+    var pass = $('inPass').value;
+    var btn = $('authBtn'), msg = $('authMsg');
+    if (!name) { toast(msg, '请输入用户名', 'err'); return; }
+    if (name.indexOf('@') >= 0) { toast(msg, '用户名里不能有 @', 'err'); return; }
+    if (nameBytes(name) > 30) { toast(msg, '用户名太长（最多约 10 个汉字或 30 个字母）', 'err'); return; }
+    if (pass.length < 6) { toast(msg, '密码至少 6 位', 'err'); return; }
+
+    btn.disabled = true;
+    toast(msg, '请稍候…');
+    var email = nameToEmail(name);
+    var task = mode === 'login'
+      ? sb.auth.signInWithPassword({ email: email, password: pass })
+      : sb.auth.signUp({ email: email, password: pass, options: { data: { username: name } } });
+
+    task.then(function (res) {
+      if (res.error) throw new Error(res.error.message);
+      if (mode === 'signup' && !res.data.session) {
+        toast(msg, '注册成功，但你的项目还开着邮箱确认，暂时无法直接登录。', 'ok');
+      } else {
+        toast(msg, '');
+      }
+    }).catch(function (err) {
+      var m = err.message || String(err);
+      if (/Invalid login credentials/i.test(m)) m = '用户名或密码不正确';
+      if (/already registered/i.test(m)) m = '这个用户名已经被占用了，换一个，或者点【登录】';
+      if (/at least 6 characters/i.test(m)) m = '密码至少 6 位';
+      if (/Email not confirmed/i.test(m)) m = '账号还没被激活（去后台把 Confirm email 关掉）';
+      if (/rate limit|Too many/i.test(m)) m = '请求太频繁，等一会儿再试';
+      if (/Password should be at least/i.test(m)) m = '密码太短，至少 6 位';
+      toast(msg, m, 'err');
+    }).then(function () { btn.disabled = false; });
+  });
+
+  /* ============ 进入网盘 ============ */
+
+  var currentUserId = null;
+
+  function enterApp(u, t) {
+    token = t;
+    if (currentUserId === u.id && !$('appView').classList.contains('hidden')) { user = u; return; }
+    currentUserId = u.id;
+    user = u;
+    $('whoami').textContent = displayName(u) + ' · 配额 1 GB';
+    show('appView');
+    path = '';
+    refresh();
+  }
+
+  $('btnLogout').addEventListener('click', function () { sb.auth.signOut(); });
+
+  /* ============ 路径 ============ */
+
+  function fullPath(p) { return user.id + (p ? '/' + p : ''); }
+
+  /* ============ 列目录 ============ */
+
+  function refresh() {
+    var list = $('list');
+    list.innerHTML = '<div class="empty"><span class="spin"></span> 加载中…</div>';
+    renderCrumbs();
+
+    var folder = fullPath(path);
+    sb.storage.from(BUCKET).list(folder, { limit: 1000, sortBy: { column: 'name', order: 'asc' } })
+      .then(function (res) {
+        if (res.error) throw new Error(res.error.message);
+        var raw = res.data || [];
+        items = raw.map(function (it) {
+          var isDir = it.id === null;
+          return {
+            name: it.name,
+            path: (path ? path + '/' : '') + it.name,
+            isDir: isDir,
+            size: isDir ? null : (it.metadata ? it.metadata.size : null),
+            updated: it.updated_at || it.created_at
+          };
+        }).filter(function (it) { return it.name !== PLACEHOLDER; })
+          .sort(function (a, b) {
+            if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+            return a.name.localeCompare(b.name, 'zh');
+          });
+        renderList();
+      })
+      .catch(function (err) {
+        list.innerHTML = '<div class="empty" style="color:var(--danger)">' + esc(err.message) + '</div>';
+      });
+  }
+
+  function renderCrumbs() {
+    var box = $('crumbs');
+    box.innerHTML = '';
+    var root = document.createElement('button');
+    root.className = 'link';
+    root.textContent = '📁 我的网盘';
+    root.onclick = function () { path = ''; refresh(); };
+    box.appendChild(root);
+
+    var parts = path.split('/').filter(Boolean), acc = '';
+    parts.forEach(function (p) {
+      acc = acc ? acc + '/' + p : p;
+      var sep = document.createElement('span');
+      sep.textContent = '/';
+      box.appendChild(sep);
+      var b = document.createElement('button');
+      b.className = 'link';
+      b.textContent = p;
+      var target = acc;
+      b.onclick = function () { path = target; refresh(); };
+      box.appendChild(b);
+    });
+  }
+
+  function renderList() {
+    var list = $('list');
+    var kw = ($('inFilter').value || '').trim().toLowerCase();
+    var view = items.filter(function (it) { return !kw || it.name.toLowerCase().indexOf(kw) >= 0; });
+
+    if (!view.length) {
+      list.innerHTML = '<div class="empty">' +
+        (items.length ? '没有匹配的文件' : '这个目录是空的，点「上传文件」或把文件拖进来') +
+        '</div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    view.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'row';
+
+      var ic = document.createElement('div');
+      ic.className = 'ic';
+      ic.textContent = it.isDir ? '📁' : '📄';
+
+      var nm = document.createElement('div');
+      nm.className = 'nm';
+      nm.textContent = it.name;
+      nm.title = it.path;
+      nm.onclick = it.isDir
+        ? function () { path = it.path; refresh(); }
+        : function () { doDownload(it); };
+
+      var sz = document.createElement('div');
+      sz.className = 'sz';
+      sz.textContent = it.isDir ? '文件夹' : fmtSize(it.size);
+
+      var ops = document.createElement('div');
+      var del = document.createElement('button');
+      del.className = 'tiny danger';
+      del.textContent = '删除';
+      del.onclick = function () { doDelete(it); };
+      ops.appendChild(del);
+
+      row.appendChild(ic); row.appendChild(nm); row.appendChild(sz); row.appendChild(ops);
+      list.appendChild(row);
+    });
+  }
+
+  /* ============ 下载 ============ */
+
+  function doDownload(it) {
+    sb.storage.from(BUCKET)
+      .createSignedUrl(fullPath(it.path), 60, { download: it.name })
+      .then(function (res) {
+        if (res.error) throw new Error(res.error.message);
+        var a = document.createElement('a');
+        a.href = res.data.signedUrl;
+        a.download = it.name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      })
+      .catch(function (err) { alert('下载失败：' + err.message); });
+  }
+
+  /* ============ 删除 ============ */
+
+  function listAllFiles(prefix, out) {
+    return sb.storage.from(BUCKET).list(prefix, { limit: 1000 }).then(function (res) {
+      if (res.error) throw new Error(res.error.message);
+      var kids = res.data || [];
+      var chain = Promise.resolve();
+      kids.forEach(function (k) {
+        chain = chain.then(function () {
+          if (k.id === null) return listAllFiles(prefix + '/' + k.name, out);
+          out.push(prefix + '/' + k.name);
+        });
+      });
+      return chain.then(function () { return out; });
+    });
+  }
+
+  function doDelete(it) {
+    var label = it.isDir
+      ? '确定删除文件夹「' + it.name + '」及里面所有文件吗？此操作不可恢复。'
+      : '确定删除「' + it.name + '」吗？此操作不可恢复。';
+    if (!confirm(label)) return;
+
+    var job;
+    if (it.isDir) {
+      job = listAllFiles(fullPath(it.path), []).then(function (files) {
+        if (!files.length) return { error: null };
+        return sb.storage.from(BUCKET).remove(files);
+      });
+    } else {
+      job = sb.storage.from(BUCKET).remove([fullPath(it.path)]);
+    }
+
+    job.then(function (res) {
+      if (res && res.error) throw new Error(res.error.message);
+      refresh();
+    }).catch(function (err) { alert('删除失败：' + err.message); });
+  }
+
+  /* ============ 新建文件夹 ============ */
+
+  $('btnFolder').addEventListener('click', function () {
+    var name = (prompt('新建文件夹名称：') || '').trim().replace(/^\/+|\/+$/g, '');
+    if (!name) return;
+    if (name.indexOf('/') >= 0) { alert('名称里不能包含 /'); return; }
+
+    var target = fullPath((path ? path + '/' : '') + name + '/' + PLACEHOLDER);
+    sb.storage.from(BUCKET).upload(target, new Blob(['folder placeholder']), {
+      upsert: true, contentType: 'text/plain'
+    }).then(function (res) {
+      if (res.error) throw new Error(res.error.message);
+      refresh();
+    }).catch(function (err) { alert('新建失败：' + err.message); });
+  });
+
+  /* ============ 上传（带进度） ============ */
+
+  function uploadOne(file, dir, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var target = fullPath(dir ? dir + '/' + file.name : file.name);
+      var url = cfg.url + '/storage/v1/object/' + BUCKET + '/' +
+        target.split('/').map(encodeURIComponent).join('/');
+
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      xhr.setRequestHeader('apikey', cfg.key);
+      xhr.setRequestHeader('x-upsert', 'true');
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('cache-control', '3600');
+
+      xhr.upload.onprogress = function (e) {
+        if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
+        var m = xhr.responseText || '';
+        try {
+          var j = JSON.parse(xhr.responseText);
+          m = j.message || j.error || m;
+        } catch (e) {}
+        if (xhr.status === 400 && /size|exceed/i.test(m)) m = '文件超过 Supabase 单文件上限（免费版默认 50 MB）';
+        if (xhr.status === 403) m = '没有写权限，请检查 RLS 策略和桶是否建好（' + m + '）';
+        reject(new Error(m || ('上传失败 ' + xhr.status)));
+      };
+      xhr.onerror = function () { reject(new Error('网络错误或跨域被拦截')); };
+      xhr.send(file);
+    });
+  }
+
+  function uploadFiles(files) {
+    var list = Array.prototype.slice.call(files);
+    if (!list.length) return;
+
+    var box = $('uploads');
+    box.innerHTML = '';
+    var next = function (i) {
+      if (i >= list.length) { refresh(); return; }
+      var f = list[i];
+
+      var row = document.createElement('div');
+      row.className = 'up';
+      row.innerHTML = '<span class="nm">' + esc(f.name) + '</span>' +
+        '<span class="bar"><i></i></span>' +
+        '<span class="st">0%</span>';
+      box.appendChild(row);
+      var bar = row.querySelector('.bar i');
+      var st = row.querySelector('.st');
+
+      if (f.size > MAX_MB * 1024 * 1024) {
+        st.className = 'st err';
+        st.textContent = '超过 ' + MAX_MB + 'MB';
+        next(i + 1);
+        return;
+      }
+
+      uploadOne(f, path, function (p) {
+        bar.style.width = (p * 100).toFixed(0) + '%';
+        st.textContent = (p * 100).toFixed(0) + '%';
+      }).then(function () {
+        bar.style.width = '100%';
+        st.className = 'st ok';
+        st.textContent = '完成';
+      }).catch(function (err) {
+        bar.style.background = 'var(--danger)';
+        st.className = 'st err';
+        st.textContent = err.message;
+      }).then(function () { next(i + 1); });
+    };
+    next(0);
+  }
+
+  $('btnUpload').addEventListener('click', function () { $('fileInput').click(); });
+  $('fileInput').addEventListener('change', function (e) {
+    uploadFiles(e.target.files);
+    e.target.value = '';
+  });
+  $('btnRefresh').addEventListener('click', refresh);
+  $('inFilter').addEventListener('input', renderList);
+
+  /* ============ 拖拽上传 ============ */
+
+  var dropEl = $('drop'), depth = 0;
+  window.addEventListener('dragenter', function (e) {
+    if ($('appView').classList.contains('hidden')) return;
+    if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') < 0) return;
+    depth++; dropEl.classList.remove('hidden');
+  });
+  window.addEventListener('dragover', function (e) {
+    if (!dropEl.classList.contains('hidden')) e.preventDefault();
+  });
+  window.addEventListener('dragleave', function () {
+    depth = Math.max(0, depth - 1);
+    if (!depth) dropEl.classList.add('hidden');
+  });
+  window.addEventListener('drop', function (e) {
+    if (dropEl.classList.contains('hidden')) return;
+    e.preventDefault(); depth = 0; dropEl.classList.add('hidden');
+    if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+  });
+
+  /* ============ 启动 ============ */
+
+  function boot() {
+    if (!cfg) {
+      if (DEFAULT_CFG.url) $('inUrl').value = DEFAULT_CFG.url;
+      show('setupView');
+      return;
+    }
+    sb = window.supabase.createClient(cfg.url, cfg.key);
+
+    // onAuthStateChange 回调里不能直接调用其他 supabase 方法（会死锁），必须让出当前调用栈
+    sb.auth.onAuthStateChange(function (event, session) {
+      setTimeout(function () {
+        if (session && session.user) {
+          enterApp(session.user, session.access_token);
+        } else {
+          currentUserId = null; user = null; token = null;
+          if (event === 'SIGNED_OUT') { setMode('login'); toast($('authMsg'), '已退出登录'); }
+          show('authView');
+        }
+      }, 0);
+    });
+
+    sb.auth.getSession().then(function (res) {
+      var session = res.data && res.data.session;
+      if (session && session.user) enterApp(session.user, session.access_token);
+      else { setMode('login'); show('authView'); }
+    });
+  }
+
+  cfg = readCfg();
+  boot();
+})();
+</script>
+</body>
+</html>
