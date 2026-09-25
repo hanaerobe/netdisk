@@ -219,4 +219,7 @@ supabase-netdisk/
 - 上传：走 Storage 的 REST 接口 + `XMLHttpRequest`，所以有**真实百分比进度条**
 - 下载：`createSignedUrl(path, 60, {download})` 生成 60 秒有效期的**签名链接**，过期自动失效
 - 列目录：`POST /storage/v1/object/list/{bucket}`；空文件夹用一个隐藏的 `.folderkeep` 占位文件表示（对象存储没有真正的空目录概念）
+- 文件名转义：Supabase Storage 只接受一部分 ASCII 字符（**中文等非 ASCII**、`#`、`%`、`~`、`[`、`]`、`` ` ``、`{`、`}`、`|`、`<`、`>`、`\`、`"`、`^` 全部会被拒并报 `Invalid key`）。所以存进存储时把非法字节写成 `!hh`（UTF-8 字节的十六进制），显示和下载时再还原成原名。
+
+  > 副作用：在 Supabase 后台的 Storage 里，中文文件名会显示成 `!e4!b8!ad!e6!96!87` 这种样子（因为那是存储里的真实键名），但**网页上和下载下来的都是正常中文名**。纯 ASCII 文件名不受影响，原样存储。
 - 所有路径自动加 `<uid>/` 前缀，配合 RLS 实现账号隔离

@@ -154,6 +154,41 @@
     return (n / 1073741824).toFixed(2) + ' GB';
   }
   function toast(el, text, kind) { el.textContent = text || ''; el.className = 'msg' + (kind ? ' ' + kind : ''); }
+
+  /* ---------- 文件名转义 ----------
+     Supabase Storage 只接受一部分 ASCII 字符，中文以及 # % ~ [ ] { } | < > \\ " ^ ` 等
+     一律报 "Invalid key"。所以存进存储的名字要把这些字节转义掉，显示时再还原：
+       字面保留   A-Za-z0-9 空格 . _ - + & = , ; ' ( ) $ @ :
+       其余字节   !hh   （两个小写十六进制位，对应 UTF-8 字节）
+     用户看到的仍是原名，下载时保存的文件名也是原名。                        */
+  var SAFE_NAME = /[A-Za-z0-9 ._\-+&=,;'()$@:]/;
+  var ESC_NAME = '!';
+
+  function encName(s) {
+    var bytes = new TextEncoder().encode(String(s));
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i];
+      out += (b < 128 && SAFE_NAME.test(String.fromCharCode(b)))
+        ? String.fromCharCode(b)
+        : ESC_NAME + (b < 16 ? '0' : '') + b.toString(16);
+    }
+    return out;
+  }
+
+  function decName(s) {
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      if (s.charAt(i) === ESC_NAME && /^[0-9a-fA-F]{2}$/.test(s.substr(i + 1, 2))) {
+        out.push(parseInt(s.substr(i + 1, 2), 16));
+        i += 2;
+      } else {
+        out.push(s.charCodeAt(i));
+      }
+    }
+    return new TextDecoder().decode(new Uint8Array(out));
+  }
+
   function show(view) {
     ['authView', 'appView'].forEach(function (v) {
       $(v).classList.toggle('hidden', v !== view);
@@ -272,7 +307,8 @@
         items = raw.map(function (it) {
           var isDir = it.id === null;
           return {
-            name: it.name,
+            name: it.name,                         // 存储里的名字（已转义）
+            disp: decName(it.name),                // 给用户看的原名
             path: (path ? path + '/' : '') + it.name,
             isDir: isDir,
             size: isDir ? null : (it.metadata ? it.metadata.size : null),
@@ -281,7 +317,7 @@
         }).filter(function (it) { return it.name !== PLACEHOLDER; })
           .sort(function (a, b) {
             if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-            return a.name.localeCompare(b.name, 'zh');
+            return a.disp.localeCompare(b.disp, 'zh');
           });
         renderList();
       })
@@ -307,7 +343,7 @@
       box.appendChild(sep);
       var b = document.createElement('button');
       b.className = 'link';
-      b.textContent = p;
+      b.textContent = decName(p);
       var target = acc;
       b.onclick = function () { path = target; refresh(); };
       box.appendChild(b);
@@ -317,7 +353,7 @@
   function renderList() {
     var list = $('list');
     var kw = ($('inFilter').value || '').trim().toLowerCase();
-    var view = items.filter(function (it) { return !kw || it.name.toLowerCase().indexOf(kw) >= 0; });
+    var view = items.filter(function (it) { return !kw || it.disp.toLowerCase().indexOf(kw) >= 0; });
 
     if (!view.length) {
       list.innerHTML = '<div class="empty">' +
@@ -337,8 +373,8 @@
 
       var nm = document.createElement('div');
       nm.className = 'nm';
-      nm.textContent = it.name;
-      nm.title = it.path;
+      nm.textContent = it.disp;
+      nm.title = it.path.split('/').map(decName).join('/');
       nm.onclick = it.isDir
         ? function () { path = it.path; refresh(); }
         : function () { doDownload(it); };
@@ -363,12 +399,12 @@
 
   function doDownload(it) {
     sb.storage.from(BUCKET)
-      .createSignedUrl(fullPath(it.path), 60, { download: it.name })
+      .createSignedUrl(fullPath(it.path), 60, { download: it.disp })
       .then(function (res) {
         if (res.error) throw new Error(res.error.message);
         var a = document.createElement('a');
         a.href = res.data.signedUrl;
-        a.download = it.name;
+        a.download = it.disp;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -395,8 +431,8 @@
 
   function doDelete(it) {
     var label = it.isDir
-      ? '确定删除文件夹「' + it.name + '」及里面所有文件吗？此操作不可恢复。'
-      : '确定删除「' + it.name + '」吗？此操作不可恢复。';
+      ? '确定删除文件夹「' + it.disp + '」及里面所有文件吗？此操作不可恢复。'
+      : '确定删除「' + it.disp + '」吗？此操作不可恢复。';
     if (!confirm(label)) return;
 
     var job;
@@ -422,7 +458,7 @@
     if (!name) return;
     if (name.indexOf('/') >= 0) { alert('名称里不能包含 /'); return; }
 
-    var target = fullPath((path ? path + '/' : '') + name + '/' + PLACEHOLDER);
+    var target = fullPath((path ? path + '/' : '') + encName(name) + '/' + PLACEHOLDER);
     sb.storage.from(BUCKET).upload(target, new Blob(['folder placeholder']), {
       upsert: true, contentType: 'text/plain'
     }).then(function (res) {
@@ -435,7 +471,7 @@
 
   function uploadOne(file, dir, onProgress) {
     return new Promise(function (resolve, reject) {
-      var target = fullPath(dir ? dir + '/' + file.name : file.name);
+      var target = fullPath((dir ? dir + '/' : '') + encName(file.name));
       var url = cfg.url + '/storage/v1/object/' + BUCKET + '/' +
         target.split('/').map(encodeURIComponent).join('/');
 
@@ -458,6 +494,7 @@
           m = j.message || j.error || m;
         } catch (e) {}
         if (/Bucket not found|NoSuchBucket/i.test(m)) m = '存储服务未就绪，请联系管理员';
+        if (/InvalidKey/i.test(m)) m = '文件名含不被支持的特殊字符';
         if (/row-level security/i.test(m)) m = '服务器拒绝了这次上传，请联系管理员';
         if (xhr.status === 400 && /size|exceed/i.test(m)) m = '文件超过 ' + MAX_MB + 'MB 上限';
         if (xhr.status === 403) m = '服务器拒绝了这次上传，请稍后重试';
