@@ -134,7 +134,6 @@
 
   var BUCKET = 'netdisk';
   var PLACEHOLDER = '.folderkeep';   // 用来表示空文件夹
-  var MAX_MB = 50;
 
   var cfg = null, sb = null, user = null, token = null;
   var path = '';
@@ -496,7 +495,7 @@
         if (/Bucket not found|NoSuchBucket/i.test(m)) m = '存储服务未就绪，请联系管理员';
         if (/InvalidKey/i.test(m)) m = '文件名含不被支持的特殊字符';
         if (/row-level security/i.test(m)) m = '服务器拒绝了这次上传，请联系管理员';
-        if (xhr.status === 400 && /size|exceed/i.test(m)) m = '文件超过 ' + MAX_MB + 'MB 上限';
+        if (xhr.status === 400 && /size|exceed|too large/i.test(m)) m = '文件超过服务端允许的单文件上限';
         if (xhr.status === 403) m = '服务器拒绝了这次上传，请稍后重试';
         reject(new Error(m || ('上传失败 ' + xhr.status)));
       };
@@ -523,13 +522,6 @@
       box.appendChild(row);
       var bar = row.querySelector('.bar i');
       var st = row.querySelector('.st');
-
-      if (f.size > MAX_MB * 1024 * 1024) {
-        st.className = 'st err';
-        st.textContent = '超过 ' + MAX_MB + 'MB';
-        next(i + 1);
-        return;
-      }
 
       uploadOne(f, path, function (p) {
         bar.style.width = (p * 100).toFixed(0) + '%';

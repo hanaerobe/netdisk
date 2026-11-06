@@ -110,18 +110,18 @@
 
 **方式 A：GitHub Pages（推荐）**
 
-1. 新建公开仓库 `supabase-netdisk`（别勾初始化）
+1. 新建公开仓库 `netdisk`（别勾初始化）
 2. 上传 `index.html`（网页：Add file → Upload files；或命令行）：
    ```powershell
    cd D:\程序源码\supabase-netdisk
    git init -b main
    git add .
    git commit -m "add supabase netdisk"
-   git remote add origin https://github.com/你的用户名/supabase-netdisk.git
+   git remote add origin https://github.com/你的用户名/netdisk.git
    git push -u origin main
    ```
 3. 仓库 **Settings → Pages** → Source 选 `Deploy from a branch` → `main` / `(root)` → Save
-4. 等 1~2 分钟，访问 `https://你的用户名.github.io/supabase-netdisk/`
+4. 等 1~2 分钟，访问 `https://你的用户名.github.io/netdisk/`
 
 **方式 B：本地试**：直接双击 `index.html`。
 
@@ -207,7 +207,7 @@ Supabase Auth 的底层只认**邮箱**或**手机号**，没有"用户名"这�
 ## 十一、文件说明
 
 ```
-supabase-netdisk/
+netdisk/
 ├── index.html       # 整个网盘（单文件，无需构建）
 ├── netdisk-rls.sql  # 建桶 + RLS 策略，全选复制到 SQL Editor 跑
 └── README.md        # 本说明
@@ -222,4 +222,5 @@ supabase-netdisk/
 - 文件名转义：Supabase Storage 只接受一部分 ASCII 字符（**中文等非 ASCII**、`#`、`%`、`~`、`[`、`]`、`` ` ``、`{`、`}`、`|`、`<`、`>`、`\`、`"`、`^` 全部会被拒并报 `Invalid key`）。所以存进存储时把非法字节写成 `!hh`（UTF-8 字节的十六进制），显示和下载时再还原成原名。
 
   > 副作用：在 Supabase 后台的 Storage 里，中文文件名会显示成 `!e4!b8!ad!e6!96!87` 这种样子（因为那是存储里的真实键名），但**网页上和下载下来的都是正常中文名**。纯 ASCII 文件名不受影响，原样存储。
+- 单文件大小：**网页端不限制**，能传多大由 Supabase 项目设置决定 —— `Storage → Settings → Global file size limit`（默认 50 MB）。改大以后网页不用改代码。
 - 所有路径自动加 `<uid>/` 前缀，配合 RLS 实现账号隔离
