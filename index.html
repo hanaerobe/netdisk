@@ -133,7 +133,10 @@
   /* ================================================================ */
 
   var BUCKET = 'netdisk';
-  var PLACEHOLDER = '.folderkeep';   // 用来表示空文件夹
+  var PLACEHOLDER = '.folderkeep';       // 用来表示空文件夹
+  var CHUNK_DIR = '.chunks';             // 大文件分块存放的隐藏目录
+  var CHUNK = 45 * 1024 * 1024;          // 每块 45 MB（服务端单文件上限 50 MB）
+  var chunkIndex = {};                   // 当前目录已存在的分块：{base: [{idx,size}]}
 
   var cfg = null, sb = null, user = null, token = null;
   var path = '';
@@ -172,6 +175,8 @@
         ? String.fromCharCode(b)
         : ESC_NAME + (b < 16 ? '0' : '') + b.toString(16);
     }
+    // 避开内部保留目录名，保证普通文件名不会和分块目录撞车（解码时会还原）
+    if (out.indexOf(CHUNK_DIR) === 0) out = ESC_NAME + '2e' + out.slice(1);
     return out;
   }
 
@@ -299,25 +304,71 @@
     renderCrumbs();
 
     var folder = fullPath(path);
+    chunkIndex = {};
     sb.storage.from(BUCKET).list(folder, { limit: 1000, sortBy: { column: 'name', order: 'asc' } })
       .then(function (res) {
         if (res.error) throw new Error(res.error.message);
         var raw = res.data || [];
-        items = raw.map(function (it) {
-          var isDir = it.id === null;
-          return {
-            name: it.name,                         // 存储里的名字（已转义）
-            disp: decName(it.name),                // 给用户看的原名
-            path: (path ? path + '/' : '') + it.name,
-            isDir: isDir,
-            size: isDir ? null : (it.metadata ? it.metadata.size : null),
-            updated: it.updated_at || it.created_at
-          };
-        }).filter(function (it) { return it.name !== PLACEHOLDER; })
-          .sort(function (a, b) {
-            if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-            return a.disp.localeCompare(b.disp, 'zh');
+        var hasChunkDir = raw.some(function (it) { return it.name === CHUNK_DIR && it.id === null; });
+
+        var all = raw
+          .filter(function (it) { return it.name !== PLACEHOLDER && it.name !== CHUNK_DIR; })
+          .map(function (it) {
+            var isDir = it.id === null;
+            return {
+              name: it.name,                         // 存储里的名字（已转义）
+              disp: decName(it.name),                // 给用户看的原名
+              path: (path ? path + '/' : '') + it.name,
+              isDir: isDir,
+              big: false,
+              size: isDir ? null : (it.metadata ? it.metadata.size : null)
+            };
           });
+
+        if (!hasChunkDir) return all;
+
+        // 有分块目录时，再列一次把大文件拼回成单个条目
+        return sb.storage.from(BUCKET).list(folder + '/' + CHUNK_DIR, { limit: 1000 })
+          .then(function (res2) {
+            if (res2.error) throw new Error(res2.error.message);
+            var groups = {}, finished = {};
+            (res2.data || []).forEach(function (k) {
+              var n = k.name;
+              if (n.slice(-5) === '.done') { finished[n.slice(0, -5)] = true; return; }
+              var dot = n.lastIndexOf('.');
+              if (dot <= 0) return;
+              var suf = n.slice(dot + 1);
+              if (!/^[0-9]{4}$/.test(suf)) return;
+              var base = n.slice(0, dot);
+              (groups[base] = groups[base] || []).push({
+                idx: parseInt(suf, 10),
+                size: (k.metadata && k.metadata.size) || 0
+              });
+            });
+            chunkIndex = groups;
+            Object.keys(groups).forEach(function (base) {
+              if (!finished[base]) return;          // 没有完成标记 = 传了一半，不显示
+              var parts = groups[base], maxIdx = 0, total = 0;
+              parts.forEach(function (p) { if (p.idx > maxIdx) maxIdx = p.idx; total += p.size; });
+              if (parts.length !== maxIdx) return;   // 缺块也不显示
+              all.push({
+                name: base,
+                disp: decName(base),
+                path: (path ? path + '/' : '') + CHUNK_DIR + '/' + base,
+                isDir: false,
+                big: true,
+                parts: maxIdx,
+                size: total
+              });
+            });
+            return all;
+          });
+      })
+      .then(function (all) {
+        items = all.sort(function (a, b) {
+          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+          return a.disp.localeCompare(b.disp, 'zh');
+        });
         renderList();
       })
       .catch(function (err) {
@@ -396,7 +447,19 @@
 
   /* ============ 下载 ============ */
 
+  function saveBlob(blob, filename) {
+    var a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+  }
+
   function doDownload(it) {
+    if (it.big) { doDownloadBig(it); return; }
     sb.storage.from(BUCKET)
       .createSignedUrl(fullPath(it.path), 60, { download: it.disp })
       .then(function (res) {
@@ -409,6 +472,47 @@
         a.remove();
       })
       .catch(function (err) { alert('下载失败：' + err.message); });
+  }
+
+  // 大文件：逐个取回每一块，在内存里拼成一个 Blob 再保存
+  function doDownloadBig(it) {
+    var total = it.parts;
+    var box = $('uploads');
+    box.innerHTML = '';
+    var row = document.createElement('div');
+    row.className = 'up';
+    row.innerHTML = '<span class="nm">' + esc(it.disp) + '</span>' +
+      '<span class="bar"><i></i></span><span class="st">0%</span>';
+    box.appendChild(row);
+    var bar = row.querySelector('.bar i');
+    var st = row.querySelector('.st');
+    var blobs = new Array(total);
+    var got = 0;
+
+    function load(i) {
+      if (i > total) return Promise.resolve();
+      return sb.storage.from(BUCKET).download(fullPath(it.path) + '.' + pad4(i))
+        .then(function (res) {
+          if (res.error) throw new Error(res.error.message);
+          blobs[i - 1] = res.data;
+          got++;
+          var pct = Math.round(got / total * 100);
+          bar.style.width = pct + '%';
+          st.textContent = pct + '%';
+          return load(i + 1);
+        });
+    }
+
+    load(1).then(function () {
+      bar.style.width = '100%';
+      st.className = 'st ok';
+      st.textContent = '完成';
+      saveBlob(new Blob(blobs, { type: 'application/octet-stream' }), it.disp);
+    }).catch(function (err) {
+      bar.style.background = 'var(--danger)';
+      st.className = 'st err';
+      st.textContent = err.message;
+    });
   }
 
   /* ============ 删除 ============ */
@@ -440,6 +544,10 @@
         if (!files.length) return { error: null };
         return sb.storage.from(BUCKET).remove(files);
       });
+    } else if (it.big) {
+      var paths = [fullPath(it.path) + '.done'];
+      for (var i = 1; i <= it.parts; i++) paths.push(fullPath(it.path) + '.' + pad4(i));
+      job = sb.storage.from(BUCKET).remove(paths);
     } else {
       job = sb.storage.from(BUCKET).remove([fullPath(it.path)]);
     }
@@ -468,40 +576,109 @@
 
   /* ============ 上传（带进度） ============ */
 
-  function uploadOne(file, dir, onProgress) {
-    return new Promise(function (resolve, reject) {
-      var target = fullPath((dir ? dir + '/' : '') + encName(file.name));
-      var url = cfg.url + '/storage/v1/object/' + BUCKET + '/' +
-        target.split('/').map(encodeURIComponent).join('/');
+  function pad4(i) { return ('0000' + i).slice(-4); }
 
+  function friendlyUploadError(xhr) {
+    var m = xhr.responseText || '';
+    try {
+      var j = JSON.parse(xhr.responseText);
+      m = j.message || j.error || m;
+    } catch (e) {}
+    if (/Bucket not found|NoSuchBucket/i.test(m)) m = '存储服务未就绪，请联系管理员';
+    if (/InvalidKey/i.test(m)) m = '文件名含不被支持的特殊字符';
+    if (/row-level security/i.test(m)) m = '服务器拒绝了这次上传，请联系管理员';
+    if (xhr.status === 413 || /Payload too large|EntityTooLarge|maximum allowed size/i.test(m)) m = '单块超过服务端上限';
+    if (/exceeded|quota/i.test(m) && /storage|space/i.test(m)) m = '空间不足';
+    if (xhr.status === 403) m = '服务器拒绝了这次上传，请稍后重试';
+    return m || ('上传失败 ' + xhr.status);
+  }
+
+  function putRaw(pathInBucket, blob, onProgress, contentType) {
+    return new Promise(function (resolve, reject) {
+      var url = cfg.url + '/storage/v1/object/' + BUCKET + '/' +
+        pathInBucket.split('/').map(encodeURIComponent).join('/');
       var xhr = new XMLHttpRequest();
       xhr.open('POST', url, true);
       xhr.setRequestHeader('Authorization', 'Bearer ' + token);
       xhr.setRequestHeader('apikey', cfg.key);
       xhr.setRequestHeader('x-upsert', 'true');
-      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream');
       xhr.setRequestHeader('cache-control', '3600');
-
       xhr.upload.onprogress = function (e) {
         if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
       };
       xhr.onload = function () {
         if (xhr.status >= 200 && xhr.status < 300) { resolve(); return; }
-        var m = xhr.responseText || '';
-        try {
-          var j = JSON.parse(xhr.responseText);
-          m = j.message || j.error || m;
-        } catch (e) {}
-        if (/Bucket not found|NoSuchBucket/i.test(m)) m = '存储服务未就绪，请联系管理员';
-        if (/InvalidKey/i.test(m)) m = '文件名含不被支持的特殊字符';
-        if (/row-level security/i.test(m)) m = '服务器拒绝了这次上传，请联系管理员';
-        if (xhr.status === 413 || /Payload too large|EntityTooLarge|maximum allowed size/i.test(m)) m = '文件太大：Supabase 免费版单文件上限 50 MB';
-        if (xhr.status === 403) m = '服务器拒绝了这次上传，请稍后重试';
-        reject(new Error(m || ('上传失败 ' + xhr.status)));
+        reject(new Error(friendlyUploadError(xhr)));
       };
       xhr.onerror = function () { reject(new Error('网络错误或跨域被拦截')); };
-      xhr.send(file);
+      xhr.send(blob);
     });
+  }
+
+  // 小文件：一次传完
+  function uploadPlain(file, dir, onProgress) {
+    var base = encName(file.name);
+    var target = fullPath((dir ? dir + '/' : '') + base);
+    return putRaw(target, file, onProgress, file.type).then(function () {
+      // 如果同名旧文件是分块存的，把旧分块清掉
+      var parts = chunkIndex[base];
+      if (!parts || !parts.length) return;
+      var old = [fullPath((dir ? dir + '/' : '') + CHUNK_DIR + '/' + base + '.done')];
+      var max = 0;
+      parts.forEach(function (p) { if (p.idx > max) max = p.idx; });
+      for (var i = 1; i <= max; i++) {
+        old.push(fullPath((dir ? dir + '/' : '') + CHUNK_DIR + '/' + base + '.' + pad4(i)));
+      }
+      sb.storage.from(BUCKET).remove(old);
+    });
+  }
+
+  // 大文件：切成 45MB 一块依次上传，最后写一个 .done 完成标记
+  function uploadChunked(file, dir, onProgress) {
+    var base = encName(file.name);
+    var cd = (dir ? dir + '/' : '') + CHUNK_DIR;
+    var total = Math.ceil(file.size / CHUNK);
+    var sent = 0;
+    var uploaded = [];
+
+    function step(i) {
+      if (i > total) return Promise.resolve();
+      var start = (i - 1) * CHUNK;
+      var end = Math.min(start + CHUNK, file.size);
+      var slice = file.slice(start, end);
+      var target = fullPath(cd + '/' + base + '.' + pad4(i));
+      return putRaw(target, slice, function (p) {
+        if (onProgress) onProgress((sent + p * slice.size) / file.size);
+      }).then(function () {
+        uploaded.push(target);
+        sent += slice.size;
+        if (onProgress) onProgress(sent / file.size);
+        return step(i + 1);
+      });
+    }
+
+    return step(1)
+      .then(function () {
+        var meta = JSON.stringify({ name: file.name, size: file.size, parts: total, chunk: CHUNK });
+        return putRaw(fullPath(cd + '/' + base + '.done'),
+          new Blob([meta], { type: 'application/json' }), null, 'application/json');
+      })
+      .then(function () {
+        // 写完就删掉同名的小文件版本，避免重名
+        sb.storage.from(BUCKET).remove([fullPath((dir ? dir + '/' : '') + base)]);
+      })
+      .catch(function (err) {
+        // 失败时把已经传上去的块清掉，不留垃圾
+        if (uploaded.length) sb.storage.from(BUCKET).remove(uploaded);
+        throw err;
+      });
+  }
+
+  function uploadOne(file, dir, onProgress) {
+    return file.size > CHUNK
+      ? uploadChunked(file, dir, onProgress)
+      : uploadPlain(file, dir, onProgress);
   }
 
   function uploadFiles(files) {
