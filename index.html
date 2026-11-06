@@ -665,8 +665,15 @@
           new Blob([meta], { type: 'application/json' }), null, 'application/json');
       })
       .then(function () {
-        // 写完就删掉同名的小文件版本，避免重名
-        sb.storage.from(BUCKET).remove([fullPath((dir ? dir + '/' : '') + base)]);
+        // 清掉同名的小文件版本，以及块数变少时残留的旧块，避免拼出脏数据
+        var kill = [fullPath((dir ? dir + '/' : '') + base)];
+        var old = chunkIndex[base] || [];
+        var maxOld = 0;
+        old.forEach(function (p) { if (p.idx > maxOld) maxOld = p.idx; });
+        for (var k = total + 1; k <= maxOld; k++) {
+          kill.push(fullPath(cd + '/' + base + '.' + pad4(k)));
+        }
+        sb.storage.from(BUCKET).remove(kill);
       })
       .catch(function (err) {
         // 失败时把已经传上去的块清掉，不留垃圾
