@@ -1,0 +1,82 @@
+name: supabase-keepalive
+
+# 目的
+#   Supabase 免费版项目「闲置 7 天」会被自动暂停，暂停后项目域名直接 NXDOMAIN，
+#   网盘的所有功能（注册/登录/上传/下载）全部失效。
+#   这个任务每周两次访问一下项目接口，刷新「最后活动时间」。
+#
+# 说明
+#   - 全部跑在 GitHub 的服务器上，不占用任何本机资源。
+#   - 公开仓库的 Actions 免费不限量，不花钱。
+#   - 也可以在仓库 Actions 页面点 “Run workflow” 手动立刻执行一次。
+#   - 里面的 anon/publishable 密钥本来就是公开的（网页源码里也有），
+#     真正的门禁是数据库 RLS，所以不需要另外配置 Secrets。
+#     想更稳妥的话，也可以把它改成 ${{ secrets.SUPABASE_KEY }}。
+#
+# ⚠️ 一个已知限制
+#   GitHub 规定：公开仓库连续 60 天没有任何提交/推送，会自动禁用定时任务
+#   （禁用前 30 天会发邮件提醒）。如果你 60 天不动这个仓库，保活会失效。
+#   到时候去 Actions 页面点一下 “Enable” 即可恢复。
+
+on:
+  schedule:
+    # 每周一、周四 03:00 UTC（北京时间 11:00）各一次。
+    # 间隔最大约 4 天，离 7 天红线留足余量。
+    - cron: '0 3 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: ping supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      SUPABASE_URL: https://hkljstgxxefxqxgclxmm.supabase.co
+      SUPABASE_KEY: sb_publishable_Vc-UqVqCMTAqfxCOTCcE7g_A4KVE9bU
+
+    steps:
+      - name: 访问项目并检查健康状态
+        run: |
+          set -u
+          echo "目标项目: $SUPABASE_URL"
+
+          # 1) Auth 接口 —— 这是判断项目死活的主要依据。
+          #    项目被暂停后 DNS 都不解析，curl 会直接失败（000）。
+          code=$(curl -sS -o /tmp/auth.json -w '%{http_code}' --max-time 20 \
+            -H "apikey: $SUPABASE_KEY" \
+            "$SUPABASE_URL/auth/v1/settings") || code=000
+          echo "auth/v1/settings -> HTTP $code"
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Supabase 项目没有正常响应（HTTP $code）。很可能又被暂停了，去 https://supabase.com/dashboard 点 Restore project。"
+            exit 1
+          fi
+
+          # 2) 再请求 Storage 接口。这条会真正查一次 Postgres，
+          #    确保「活动」被数据库记上（返回 4xx 也无所谓，请求已经打到服务了）。
+          code2=$(curl -sS -o /tmp/bucket.json -w '%{http_code}' --max-time 20 \
+            -H "apikey: $SUPABASE_KEY" \
+            "$SUPABASE_URL/storage/v1/bucket") || code2=000
+          echo "storage/v1/bucket -> HTTP $code2 （404/401/403 都正常，说明服务活着）"
+
+          {
+            echo "## Supabase 保活检查"
+            echo ""
+            echo "| 检查项 | 结果 |"
+            echo "| --- | --- |"
+            echo "| auth/v1/settings | HTTP \`$code\` |"
+            echo "| storage/v1/bucket | HTTP \`$code2\` |"
+            echo "| 执行时间 | $(date -u '+%Y-%m-%d %H:%M UTC') |"
+            echo ""
+            echo "项目活着，暂停计时已重置。"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "完成：项目正常响应。"
